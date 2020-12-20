@@ -1,0 +1,172 @@
+---
+title: "Covid-19 in a United States County"
+author: "Udayan Roy"
+date: "`r Sys.Date()`"
+output:
+  html_document: default
+params:
+  fips: "09003"
+  state_long: "Connecticut"
+  state_short: "CT"
+  county: "Hartford"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Data
+
+Here I use the data available at <https://github.com/nytimes/covid-19-data> to highlight a few aspects of the Covid-19 pandemic in `r params$county` county, `r params$state_long`. I show the *R* code that I have used.
+
+I begin by making the *tidyverse* package available for use:
+
+```{r message=FALSE, warning=FALSE}
+library(tidyverse)
+```
+
+Next, I download the data provided by The New York Times for all US counties and prepare a smaller data frame for `r params$county` county, `r params$state_short`, by specifying its [FIPS code](https://en.wikipedia.org/wiki/FIPS_county_code), which happens to be `r params$fips`:
+
+```{r message=FALSE, warning=FALSE}
+corona.us.counties <- read_csv("https://raw.githubusercontent.com/nytimes/covid-19-data/master/us-counties.csv")
+mycounty.mystate <- filter(corona.us.counties, fips == params$fips)
+head(mycounty.mystate)
+```
+
+The crucial variables are *cases* and *deaths*, representing cumulative counts. Note that the data are arranged chronologically and begin on `r strftime(mycounty.mystate$date[[1]], "%A, %B %d, %Y")`, the day the first case was recorded in `r params$county` county, `r params$state_long`.
+
+## Graphs of Cumulative Covid-19 Cases and Deaths
+
+### Cumulative Covid-19 Cases
+
+As an example of the use of the `xts` and `dygraphs` packages, I present an interactive graph of the cumulative number of Covid-19 cases. The `xts` package is widely used to work with time series data. The `dygraphs` package creates, inter alia, interactive graphs when it is fed an `xts` data object.
+```{r message=FALSE, warning=FALSE}
+library(xts)
+library(dygraphs)
+mycounty.mystate.coredata <- mycounty.mystate %>%
+  select(cases, deaths) 
+mycounty.mystate.index <- as.Date(mycounty.mystate$date, "%m/%d/%Y")
+
+mycounty.mystate.xts <- xts(mycounty.mystate.coredata, order.by= mycounty.mystate.index)
+
+dygraph(mycounty.mystate.xts$cases, main = "Cumulative Cases", width = 500, height = 300) %>%
+  dyRangeSelector() %>%
+  dyHighlight(highlightCircleSize = 5,
+              highlightSeriesBackgroundAlpha = 0.2,
+              hideOnMouseOut = FALSE)
+# To show all the variables in the `xts` object, delete `$cases`.
+```
+
+Note, again, that this graph is __interactive__! If you glide your cursor over the graph, you should see an ever-changing label giving the cumulative cases of Covid-19 for the relevant day. You should also be able to drag the sliders on the graph's horizontal axis to choose the beginning and end of the chart's time period.
+
+The next graph shows the same data as the one above, but using a logarithmic scale (with one unit of height along the vertical scale representing a doubling of the plotted variable). Moreover, this is a static -- that is, non-interactive -- graph. 
+
+For my static graphs, I use the *ggplot2* package, which is part of the *tidyverse* package that I have already made ready for use.
+
+```{r message=FALSE, warning=FALSE}
+ggplot(data = mycounty.mystate) +    
+  geom_point(mapping = aes(x = date, y = cases), color = "blue") +
+  scale_y_continuous(trans = 'log2') +
+  labs(x = "Date", y = "Cumulative Cases", title = "The Spread of the Virus", subtitle = "Logarithmic Scale")
+```
+
+### Cumulative Covid-19 Deaths
+
+```{r message=FALSE, warning=FALSE}
+ggplot(data = mycounty.mystate) +  
+  geom_line(mapping = aes(x = date, y = deaths)) +
+  labs(x = "Date", y = "Cumulative Deaths", title = "The Toll", subtitle = "Linear Scale")
+```
+
+And in logarithmic scale:
+
+```{r message=FALSE, warning=FALSE}
+ggplot(data = mycounty.mystate) +    
+  geom_point(mapping = aes(x = date, y = deaths), color = "blue") +
+  scale_y_continuous(trans = 'log2') +
+  labs(x = "Date", y = "Cumulative Deaths", title = "The Toll", subtitle = "Logarithmic Scale")
+```
+
+And, having graphed the data for Covid-19 cases and deaths, it is not too much of a detour to look at the [Case Fatality Rate](https://en.wikipedia.org/wiki/Case_fatality_rate), which is deaths as a percent of cases:
+
+```{r message=FALSE, warning=FALSE}
+ggplot(data = mycounty.mystate) +  
+  geom_line(mapping = aes(x = date, y = 100*(deaths/cases))) +
+  labs(x = "Date", y = "Deaths as a percent of Cases", title = "Case Fatality Rate")
+```
+
+Note that this rate would depend heavily on the number of tests being done and on the criteria used to determine who gets tested. Moreover, this case fatality rate is _cumulative_ deaths as a percent of _cumulative_ cases. As time passes and the pandemic matures, day to day changes in these cumulative numbers will be relatively inconsequential. Consequently, the CFR, being a ratio of slow-changing numbers, will itself be slow to change.
+
+## Daily Numbers of New Covid-19 Cases and Deaths 
+
+The increase in the cumulative totals from one date to the next gives the increment for the second of the two dates. The *seven-day averages of the daily increases* are also calculated.
+
+```{r message=FALSE, warning=FALSE}
+mycounty.mystate <- mycounty.mystate %>%
+  arrange(date) %>%   # This is not strictly necessary
+  mutate(increase.in.cases = cases - lag(cases), 
+         increase.in.deaths = deaths - lag(deaths)) %>%
+  mutate(increase.in.cases.7days = (cases - lag(cases, 7))/7,
+         increase.in.deaths.7days = (deaths - lag(deaths, 7))/7)
+```
+
+Now the *daily tallies* of new cases and deaths can be graphed, with the *seven-day averages* overlaid in blue:
+
+### Daily Tally of New Covid-19 Cases and the Seven-Day Average
+
+```{r message=FALSE, warning=FALSE}
+ggplot(data = mycounty.mystate) +  
+  geom_line(mapping = aes(x = date, y = increase.in.cases)) +
+  geom_line(mapping = aes(x = date, y = increase.in.cases.7days), color = "blue", linetype = 1, size = 1.5) +
+  labs(x = NULL, y = NULL, title = "The Daily Increase in Cases and its Seven-Day Average")
+```
+
+### Daily Tally of New Covid-19 Deaths and the Seven-Day Average
+
+```{r message=FALSE, warning=FALSE}
+ggplot(data = mycounty.mystate) +  
+  geom_line(mapping = aes(x = date, y = increase.in.deaths)) +
+  geom_line(mapping = aes(x = date, y = increase.in.deaths.7days), color = "blue", linetype = 1, size = 1.5) +
+  labs(x = NULL, y = NULL, title = "The Daily Increase in Deaths and its Seven-Day Average")
+```
+
+
+## The Toughest Days So Far in `r params$county` County, `r params$state_short`
+
+### These Were the Days with the Most New Cases
+
+```{r message=FALSE, warning=FALSE}
+tail(mycounty.mystate %>% select(date, increase.in.cases, increase.in.deaths) %>% arrange(increase.in.cases) %>% na.omit()) 
+```
+
+### These Were the Days with the Most New Deaths
+
+```{r message=FALSE, warning=FALSE}
+tail(mycounty.mystate %>% select(date, increase.in.cases, increase.in.deaths) %>% arrange(increase.in.deaths) %>% na.omit())
+```
+
+## The Last Two Weeks
+
+```{r message=FALSE, warning=FALSE}
+tail(mycounty.mystate %>% select(date, increase.in.cases, increase.in.deaths), 14)
+```
+
+### Last Two Weeks: Daily Tally of New Cases
+
+```{r message=FALSE, warning=FALSE}
+ggplot(data = tail(mycounty.mystate, 14)) +  
+  geom_line(mapping = aes(x = date, y = increase.in.cases))
+```
+
+### Last Two Weeks: Daily Tally of New Deaths
+
+```{r message=FALSE, warning=FALSE}
+ggplot(data = tail(mycounty.mystate, 14)) +   
+  geom_line(mapping = aes(x = date, y = increase.in.deaths))
+```
+
+## Conclusion
+
+Needless to say, the code here can be used to present a similar profile for any other US county, by inserting the appropriate *fips* number for the county in the first of my code chunks. 
+
+This essay is meant to help me remember the *R* commands I used in it. I am an amateur "data scientist" and I work on simple projects on occasion. As a result of the long gaps between my "projects", I tend to forget what I learn. 
